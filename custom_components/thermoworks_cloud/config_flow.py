@@ -12,7 +12,7 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from thermoworks_cloud import AuthenticationError, AuthFactory, ThermoworksCloud
+from .tw_lib import AuthenticationError, AuthFactory, ThermoworksCloud
 
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN, MIN_SCAN_INTERVAL_SECONDS
 

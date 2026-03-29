@@ -9,7 +9,7 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from thermoworks_cloud import AuthFactory, ThermoworksCloud, ResourceNotFoundError
+from .tw_lib import AuthFactory, ThermoworksCloud, ResourceNotFoundError
 
 from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
 from .exceptions import MissingRequiredAttributeError

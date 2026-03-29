@@ -13,11 +13,9 @@
   "loggers": [
     "thermoworks_cloud"
   ],
-  "requirements": [
-    "thermoworks-cloud @ git+https://github.com/lcoppenr/python-thermoworks-cloud@main"
-  ],
+  "requirements": [],
   "single_config_entry": false,
   "ssdp": [],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "zeroconf": []
 }

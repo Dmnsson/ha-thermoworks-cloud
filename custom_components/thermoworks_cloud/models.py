@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
-from thermoworks_cloud.models import Device, DeviceChannel, FanInfo
+from .tw_lib.models import Device, DeviceChannel, FanInfo
 
 from .exceptions import MissingRequiredAttributeError
 
