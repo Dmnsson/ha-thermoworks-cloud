@@ -145,10 +145,6 @@ async def async_setup_entry(
                 coordinator=coordinator, device=device))
 
         for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
-            if device_channel.enabled == False:
-                _LOGGER.debug("Skipping disabled channel %s for device %s",
-                              device_channel.display_name(), device.display_name())
-                continue
             if device_channel.units == "H":
                 new_entities.append(
                     HumiditySensor(
