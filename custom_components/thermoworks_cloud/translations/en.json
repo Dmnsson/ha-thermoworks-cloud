@@ -28,6 +28,21 @@
       "humidity": {
         "name": "{channel_name} Humidity"
       },
+      "rate_of_change": {
+        "name": "{channel_name} Rate of Change"
+      },
+      "fan_set_temp": {
+        "name": "Fan Set Temperature"
+      },
+      "fan_state": {
+        "name": "Fan State"
+      },
+      "fan_connected": {
+        "name": "Fan Connected"
+      },
+      "session_start": {
+        "name": "Session Start"
+      },
       "signal": {
         "name": "Signal Strength"
       }

@@ -24,6 +24,7 @@ from .models import (
     DeviceWithLastSeen,
     DeviceWithTransmitInterval,
     DeviceWithWifi,
+    DeviceWithFan,
     ThermoworksChannel,
     get_missing_attributes,
 )
@@ -125,7 +126,29 @@ async def async_setup_entry(
                 get_missing_attributes(device, DeviceWithTransmitInterval)
             )
 
+        # Fan sensors — only if fan data is present
+        if device.fan is not None:
+            new_entities.append(FanSetTempSensor(
+                entity_id=async_generate_entity_id(ENTITY_ID_FORMAT, f"{device.get_identifier()}_fan_set_temp", hass=hass),
+                coordinator=coordinator, device=device))
+            new_entities.append(FanStateSensor(
+                entity_id=async_generate_entity_id(ENTITY_ID_FORMAT, f"{device.get_identifier()}_fan_state", hass=hass),
+                coordinator=coordinator, device=device))
+            new_entities.append(FanConnectedSensor(
+                entity_id=async_generate_entity_id(ENTITY_ID_FORMAT, f"{device.get_identifier()}_fan_connected", hass=hass),
+                coordinator=coordinator, device=device))
+
+        # Session start
+        if device.session_start is not None:
+            new_entities.append(SessionStartSensor(
+                entity_id=async_generate_entity_id(ENTITY_ID_FORMAT, f"{device.get_identifier()}_session_start", hass=hass),
+                coordinator=coordinator, device=device))
+
         for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
+            if device_channel.enabled == False:
+                _LOGGER.debug("Skipping disabled channel %s for device %s",
+                              device_channel.display_name(), device.display_name())
+                continue
             if device_channel.units == "H":
                 new_entities.append(
                     HumiditySensor(
@@ -159,6 +182,17 @@ async def async_setup_entry(
                     device.display_name(),
                     device_channel.display_name()
                 )
+
+            if device_channel.rate_of_change is not None:
+                new_entities.append(RateOfChangeSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.get_identifier()}_ch_{device_channel.number}_roc",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device_serial=device.get_identifier(),
+                    device_channel=device_channel))
 
     if len(new_entities) > 0:
         _LOGGER.debug("New entities to create: %d", len(new_entities))
@@ -454,10 +488,7 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         """Return unique id."""
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
-        return (
-            f"{DOMAIN}-{format_mac(self._device_serial)
-                        }-{self._device_channel.number}"
-        )
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}"
 
 class TemperatureSensor(ChannelSensor):
     """Implementation of a thermoworks temperature sensor."""
@@ -479,8 +510,7 @@ class TemperatureSensor(ChannelSensor):
             return UnitOfTemperature.CELSIUS
 
         raise ValueError(
-            f"Unable to determine unit of measurement from unit string '{
-                self._device_channel.units}'"
+            f"Unable to determine unit of measurement from unit string '{self._device_channel.units}'"
         )
 
 
@@ -498,6 +528,179 @@ class HumiditySensor(ChannelSensor):
     # API data is in percent
     # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
+
+
+class RateOfChangeSensor(ChannelSensor):
+    """Rate of change sensor for a thermoworks channel."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+    _attr_translation_key = "rate_of_change"
+    _attr_suggested_display_precision = 1
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        unit = self._device_channel.units if self._device_channel.units else "F"
+        if unit == "F":
+            return f"{UnitOfTemperature.FAHRENHEIT}/h"
+        return f"{UnitOfTemperature.CELSIUS}/h"
+
+    @property
+    def native_value(self) -> float | None:
+        return self._device_channel.rate_of_change
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-roc"
+
+
+class FanSetTempSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Fan target temperature sensor."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+    _attr_translation_key = "fan_set_temp"
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, entity_id, coordinator, device):
+        super().__init__(coordinator)
+        self.entity_id = entity_id
+        self._device = device
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        if not device:
+            raise UpdateFailed(f"Device {self._device.display_name()} not found")
+        self._device = device
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")})
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        units = getattr(self._device, 'device_display_units', 'F') or 'F'
+        return UnitOfTemperature.FAHRENHEIT if units == 'F' else UnitOfTemperature.CELSIUS
+
+    @property
+    def native_value(self):
+        if self._device.fan is None:
+            return None
+        return self._device.fan.set_temp
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-set-temp"
+
+
+class FanStateSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Fan running state sensor (0=off, 1=on)."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+    _attr_translation_key = "fan_state"
+
+    def __init__(self, entity_id, coordinator, device):
+        super().__init__(coordinator)
+        self.entity_id = entity_id
+        self._device = device
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        if not device:
+            raise UpdateFailed(f"Device {self._device.display_name()} not found")
+        self._device = device
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")})
+
+    @property
+    def native_value(self):
+        if self._device.fan is None:
+            return None
+        return self._device.fan.state
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-state"
+
+
+class FanConnectedSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Fan physically connected sensor."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "fan_connected"
+
+    def __init__(self, entity_id, coordinator, device):
+        super().__init__(coordinator)
+        self.entity_id = entity_id
+        self._device = device
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        if not device:
+            raise UpdateFailed(f"Device {self._device.display_name()} not found")
+        self._device = device
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")})
+
+    @property
+    def native_value(self):
+        if self._device.fan is None:
+            return None
+        return self._device.fan.connected
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-fan-connected"
+
+
+class SessionStartSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
+    """Cook session start timestamp sensor."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_has_entity_name = True
+    _attr_translation_key = "session_start"
+
+    def __init__(self, entity_id, coordinator, device):
+        super().__init__(coordinator)
+        self.entity_id = entity_id
+        self._device = device
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
+        if not device:
+            raise UpdateFailed(f"Device {self._device.display_name()} not found")
+        self._device = device
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")})
+
+    @property
+    def native_value(self):
+        if self._device.session_start is None:
+            return None
+        if hasattr(self._device.session_start, 'isoformat'):
+            return dt_util.as_utc(self._device.session_start)
+        parsed = dt_util.parse_datetime(str(self._device.session_start))
+        return dt_util.as_utc(parsed) if parsed else None
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-session-start"
 
 
 class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):

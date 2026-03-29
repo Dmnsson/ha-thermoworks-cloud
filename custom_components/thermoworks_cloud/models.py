@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import NoneType
 from typing import Any, Optional, Protocol, Type, TypeGuard, Union, get_args, get_origin, get_type_hints
-from thermoworks_cloud.models import Device, DeviceChannel
+from thermoworks_cloud.models import Device, DeviceChannel, FanInfo
 
 from .exceptions import MissingRequiredAttributeError
 
@@ -51,6 +51,11 @@ class BaseDevice(Protocol):
     wifi_strength: Optional[float] = None
     last_seen: Optional[datetime] = None
     transmit_interval_in_seconds: Optional[int] = None
+    session_start: Optional[datetime] = None
+    session_label: Optional[str] = None
+    connected_ssid: Optional[str] = None
+    device_display_units: Optional[str] = None
+    fan: Optional[Any] = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +84,11 @@ class ThermoworksDevice(BaseDevice):
             wifi_strength=device.wifi_strength,
             last_seen=device.last_seen,
             transmit_interval_in_seconds=device.transmit_interval_in_seconds,
+            session_start=getattr(device, 'session_start', None),
+            session_label=getattr(device, 'session_label', None),
+            connected_ssid=getattr(device, 'connected_ssid', None),
+            device_display_units=getattr(device, 'device_display_units', None),
+            fan=getattr(device, 'fan', None),
         )
 
     def get_identifier(self) -> str:
@@ -88,7 +98,7 @@ class ThermoworksDevice(BaseDevice):
     def display_name(self) -> str:
         """Return the display name of the device."""
         # {user given name} ({rfx gateway, rfx meat, node, etc.} - {usually serial number})
-        return f"{self.label or "unnamed device"} ({self.device_name or "unknown device"} - {self.get_identifier()})"
+        return f"{self.label or 'unnamed device'} ({self.device_name or 'unknown device'} - {self.get_identifier()})"
 
 
 class DeviceWithBattery(ThermoworksDevice):
@@ -131,6 +141,16 @@ class DeviceWithTransmitInterval(ThermoworksDevice):
         return has_required_attributes(obj, DeviceWithTransmitInterval)
 
 
+class DeviceWithFan(ThermoworksDevice):
+    """Protocol for devices with fan controller."""
+    fan: Any
+
+    @classmethod
+    def is_protocol_compliant(cls, obj: Any) -> TypeGuard["DeviceWithFan"]:
+        """Return True if the object implements DeviceWithFan protocol."""
+        return has_required_attributes(obj, DeviceWithFan) and getattr(obj, 'fan', None) is not None
+
+
 @dataclass
 class ThermoworksChannel:
     """Represents a Thermoworks device channel with required properties for this integration."""
@@ -140,6 +160,15 @@ class ThermoworksChannel:
     units: str
     status: Optional[str]
     label: Optional[str]
+    color: Optional[str] = None
+    rate_of_change: Optional[float] = None
+    rate_of_change_unit: Optional[str] = None
+    estimated_alarm_status: Optional[str] = None
+    enabled: Optional[bool] = None
+    calibration: Optional[float] = None
+    calibration_unit: Optional[str] = None
+    trim: Optional[Any] = None
+    recent_readings: Optional[list] = None
 
     @classmethod
     def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
@@ -159,10 +188,19 @@ class ThermoworksChannel:
             value=channel.value,
             units=channel.units,
             status=channel.status,
-            label=channel.label
+            label=channel.label,
+            color=getattr(channel, 'color', None),
+            rate_of_change=getattr(channel, 'rate_of_change', None),
+            rate_of_change_unit=getattr(channel, 'rate_of_change_unit', None),
+            estimated_alarm_status=getattr(channel, 'estimated_alarm_status', None),
+            enabled=getattr(channel, 'enabled', None),
+            calibration=getattr(channel, 'calibration', None),
+            calibration_unit=getattr(channel, 'calibration_unit', None),
+            trim=getattr(channel, 'trim', None),
+            recent_readings=getattr(channel, 'recent_readings', None),
         )
 
     def display_name(self) -> str:
         """Return the display name of the channel."""
         # {user given name} (Ch. {channel number})
-        return f"{self.label or "unnamed channel"} (Ch. {self.number})"
+        return f"{self.label or 'unnamed channel'} (Ch. {self.number})"
