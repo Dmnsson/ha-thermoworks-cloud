@@ -11,7 +11,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from .tw_lib import AuthFactory, ThermoworksCloud, ResourceNotFoundError
 
-from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
+from .const import DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN, ACTIVE_COOK_SCAN_INTERVAL_SECONDS
 from .exceptions import MissingRequiredAttributeError
 from .models import ThermoworksDevice, ThermoworksChannel
 
@@ -43,9 +43,15 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
         self.password = config_entry.data[CONF_PASSWORD]
 
         # set variables from options.  You need a default here incase options have not been set
-        self.poll_interval = config_entry.options.get(
-            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
-        )
+        # Read scan_interval_minutes from options, convert to seconds
+        interval_minutes = config_entry.options.get("scan_interval_minutes", None)
+        if interval_minutes is not None:
+            self.poll_interval = interval_minutes * 60
+        else:
+            # Fall back to legacy CONF_SCAN_INTERVAL seconds value or default
+            self.poll_interval = config_entry.options.get(
+                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
+            )
 
         # Initialise DataUpdateCoordinator
         super().__init__(
@@ -144,6 +150,23 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
         _LOGGER.debug(
             "Update completed: %d devices with data retrieved", len(devices))
+
+        # Smart polling: drop to active-cook interval if fan is alarming on any device
+        active_cook = any(
+            getattr(getattr(device_obj, 'fan', None), 'alarming', False)
+            for device_obj in api_devices
+        )
+        if active_cook:
+            new_interval = timedelta(seconds=ACTIVE_COOK_SCAN_INTERVAL_SECONDS)
+        else:
+            new_interval = timedelta(seconds=self.poll_interval)
+
+        if self.update_interval != new_interval:
+            _LOGGER.debug(
+                "Adjusting poll interval to %s (active_cook=%s)",
+                new_interval, active_cook
+            )
+            self.update_interval = new_interval
 
         return ThermoworksData(
             devices=devices,

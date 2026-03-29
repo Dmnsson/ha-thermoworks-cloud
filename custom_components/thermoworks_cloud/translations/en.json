@@ -2,12 +2,11 @@
   "options": {
     "step": {
       "init": {
+        "title": "ThermoWorks Cloud Options",
         "data": {
-          "scan_interval": "Scan interval (seconds)"
+          "scan_interval_minutes": "Poll interval (minutes)"
         },
-        "data_description": {
-          "scan_interval": "How often to poll ThermoWorks for updates"
-        }
+        "description": "Set how often to poll ThermoWorks Cloud. Polling automatically increases to 1 minute when a cook is detected."
       }
     }
   },

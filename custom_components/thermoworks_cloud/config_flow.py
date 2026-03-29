@@ -98,20 +98,26 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None) -> config_entries.ConfigFlowResult:
         """Handle options flow."""
         if user_input is not None:
-            options = self.config_entry.options | user_input
+            # Convert minutes to seconds for storage
+            options = self.config_entry.options.copy()
+            options["scan_interval_minutes"] = user_input.get("scan_interval_minutes")
             return self.async_create_entry(data=options)
 
-        # It is recommended to prepopulate options fields with default values if available.
-        # These will be the same default values you use on your coordinator for setting variable values
-        # if the option has not been set.
+        # Get current interval from minutes or fall back to seconds stored value
+        current_minutes = self.config_entry.options.get("scan_interval_minutes")
+        if current_minutes is None:
+            # Fall back to seconds if not set in minutes format
+            current_seconds = self.config_entry.options.get(
+                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
+            )
+            current_minutes = max(1, current_seconds // 60)
+
         data_schema = vol.Schema(
             {
                 vol.Required(
-                    CONF_SCAN_INTERVAL,
-                    default=self.config_entry.options.get(
-                        CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS
-                    ),
-                ): vol.All(vol.Coerce(int), vol.Clamp(min=MIN_SCAN_INTERVAL_SECONDS)),
+                    "scan_interval_minutes",
+                    default=current_minutes,
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
             }
         )
 

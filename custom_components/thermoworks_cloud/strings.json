@@ -17,6 +17,17 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_account%]"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ThermoWorks Cloud Options",
+        "data": {
+          "scan_interval_minutes": "Poll interval (minutes)"
+        },
+        "description": "Set how often to poll ThermoWorks Cloud. Polling automatically increases to 1 minute when a cook is detected."
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "battery": {
