@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Optional, List
 
-from thermoworks_cloud.utils import parse_datetime, map_firestore_fields, parse_nested_object
+from ..utils import parse_datetime, map_firestore_fields, parse_nested_object
 
 
 @dataclass

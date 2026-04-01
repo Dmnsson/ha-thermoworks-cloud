@@ -3,7 +3,7 @@
 import logging
 from typing import List
 
-from thermoworks_cloud.utils import format_client_response
+from .utils import format_client_response
 
 from .auth import Auth
 from .models.device import Device, _document_to_device
