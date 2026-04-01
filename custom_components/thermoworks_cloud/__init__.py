@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
@@ -24,7 +23,6 @@ class RuntimeData:
     """Data available globally throughout the integration."""
 
     coordinator: ThermoworksCoordinator
-    cancel_update_listener: Callable
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -44,14 +42,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady
 
     # Initialise a listener for config flow options changes.
-    # See config_flow for defining an options setting that shows up as configure on the integration.
-    cancel_update_listener = entry.add_update_listener(_async_update_listener)
+    # async_on_unload ensures the listener is cancelled automatically when the entry is unloaded.
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-    # Add the coordinator and update listener to hass data to make
-    # accessible throughout your integration
-    # Note: this will change on HA2024.6 to save on the config entry.
-    hass.data[DOMAIN][entry.entry_id] = RuntimeData(
-        coordinator, cancel_update_listener)
+    # Add the coordinator to hass data to make accessible throughout the integration.
+    hass.data[DOMAIN][entry.entry_id] = RuntimeData(coordinator)
 
     # Setup platforms (based on the list of entity types in PLATFORMS defined above)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -82,9 +77,6 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     This is called when you remove your integration or shutdown HA.
     If you have created any custom services, they need to be removed here too.
     """
-
-    # Remove the config options update listener
-    hass.data[DOMAIN][config_entry.entry_id].cancel_update_listener()
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(
