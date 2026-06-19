@@ -112,7 +112,11 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
 
                 device_channels = []
                 # According to the observed behavior, channels seem to be 1 indexed
-                for channel in range(1, 10):
+                for channel in range(0, 10):
+                    if channel == 0:
+                        _LOGGER.debug("No channel 0 for device %s, trying from 1",
+                                      device.display_name())
+                        continue
                     try:
                         api_channel = await self.api.get_device_channel(
                             device_serial=device.serial,

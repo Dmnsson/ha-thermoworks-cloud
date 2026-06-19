@@ -158,6 +158,19 @@ async def async_setup_entry(
                         device_channel=device_channel,
                     )
                 )
+                
+            if device_channel.alarm_high is not None:
+                new_entities.append(AlarmHighSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.get_identifier()}_ch_{device_channel.number}_target_temperature",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device_serial=device.get_identifier(),
+                    device_channel=device_channel,
+                ))
+            
             elif device_channel.units in ("F", "C"):
                 new_entities.append(
                     TemperatureSensor(
@@ -774,3 +787,34 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         # All entities must have a unique id.  Think carefully what you want this to be as
         # changing it later will cause HA to create new entities.
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-signal"
+
+class AlarmHighSensor(ChannelSensor):
+    """Sensor that reports the alarm high (target temp) for a channel."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_translation_key = "temperature"
+    _attr_suggested_display_precision = 0
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return f"{self._device_channel.display_name().capitalize()} target temperature"
+
+    @property
+    def native_value(self) -> int | float | None:
+        """Return the alarm high value."""
+        if self._device_channel.alarm_high is None:
+            return None
+        return float(self._device_channel.alarm_high)
+
+    @property
+    def unique_id(self) -> str:
+        """Return unique id."""
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-alarm-high"
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit of temperature."""
+        if self._device_channel.alarm_high_units == "F":
+            return UnitOfTemperature.FAHRENHEIT
+        return UnitOfTemperature.CELSIUS

@@ -169,6 +169,8 @@ class ThermoworksChannel:
     calibration_unit: Optional[str] = None
     trim: Optional[Any] = None
     recent_readings: Optional[list] = None
+    alarm_high: Optional[float] = None
+    alarm_high_units: Optional[str] = None
 
     @classmethod
     def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
@@ -198,6 +200,8 @@ class ThermoworksChannel:
             calibration_unit=getattr(channel, 'calibration_unit', None),
             trim=getattr(channel, 'trim', None),
             recent_readings=getattr(channel, 'recent_readings', None),
+            alarm_high=channel.alarm_high.value if channel.alarm_high is not None else None,
+            alarm_high_units=channel.alarm_high.units if channel.alarm_high is not None else None,
         )
 
     def display_name(self) -> str:
