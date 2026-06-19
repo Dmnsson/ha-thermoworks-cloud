@@ -2,14 +2,15 @@
   "domain": "thermoworks_cloud",
   "name": "ThermoWorks Cloud",
   "codeowners": [
-    "@a2hill"
+    "@a2hill",
+    "@Dmnsson"
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/a2hill/ha-thermoworks-cloud",
+  "documentation": "https://github.com/Dmnsson/ha-thermoworks-cloud",
   "homekit": {},
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/a2hill/ha-thermoworks-cloud/issues",
+  "issue_tracker": "https://github.com/Dmnsson/ha-thermoworks-cloud/issues",
   "loggers": [
     "thermoworks_cloud"
   ],
