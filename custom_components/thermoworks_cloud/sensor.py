@@ -171,7 +171,7 @@ async def async_setup_entry(
                     device_channel=device_channel,
                 ))
             
-            elif device_channel.units in ("F", "C"):
+            if device_channel.units in ("F", "C"):
                 new_entities.append(
                     TemperatureSensor(
                         entity_id=async_generate_entity_id(
