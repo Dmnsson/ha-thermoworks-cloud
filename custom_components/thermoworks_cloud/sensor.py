@@ -33,6 +33,14 @@ from .coordinator import ThermoworksCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
+# Channel type constants
+CHANNEL_TYPE_COMPUTED = "computed"
+CHANNEL_TYPE_RFX_MEAT = "rfx meat sensor"
+CHANNEL_TYPE_PRO_SERIES = "Pro-Series"
+
+# Channel types that support alarm high/low sensors
+CHANNEL_TYPES_WITH_ALARMS = {CHANNEL_TYPE_COMPUTED, CHANNEL_TYPE_PRO_SERIES}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -145,6 +153,8 @@ async def async_setup_entry(
                 coordinator=coordinator, device=device))
 
         for device_channel in coordinator.data.device_channels.get(device.get_identifier(), []):
+
+            # Humidity sensor
             if device_channel.units == "H":
                 new_entities.append(
                     HumiditySensor(
@@ -158,20 +168,9 @@ async def async_setup_entry(
                         device_channel=device_channel,
                     )
                 )
-                
-            if device_channel.alarm_high is not None:
-                new_entities.append(AlarmHighSensor(
-                    entity_id=async_generate_entity_id(
-                        ENTITY_ID_FORMAT,
-                        f"{device.get_identifier()}_ch_{device_channel.number}_target_temperature",
-                        hass=hass,
-                    ),
-                    coordinator=coordinator,
-                    device_serial=device.get_identifier(),
-                    device_channel=device_channel,
-                ))
-            
-            if device_channel.units in ("F", "C"):
+
+            # Temperature sensor — all channels with F or C units
+            elif device_channel.units in ("F", "C"):
                 new_entities.append(
                     TemperatureSensor(
                         entity_id=async_generate_entity_id(
@@ -192,16 +191,39 @@ async def async_setup_entry(
                     device_channel.display_name()
                 )
 
-            if device_channel.rate_of_change is not None:
-                new_entities.append(RateOfChangeSensor(
+            # Alarm high (target temp) — only for computed channels
+            if (
+                device_channel.channel_type in CHANNEL_TYPES_WITH_ALARMS
+                and device_channel.alarm_high is not None
+            ):
+                new_entities.append(AlarmHighSensor(
                     entity_id=async_generate_entity_id(
                         ENTITY_ID_FORMAT,
-                        f"{device.get_identifier()}_ch_{device_channel.number}_roc",
+                        f"{device.get_identifier()}_ch_{device_channel.number}_high_temperature",
                         hass=hass,
                     ),
                     coordinator=coordinator,
                     device_serial=device.get_identifier(),
-                    device_channel=device_channel))
+                    device_channel=device_channel,
+                ))
+
+            # Alarm low — only for computed channels
+            if (
+                device_channel.channel_type in CHANNEL_TYPES_WITH_ALARMS
+                and device_channel.alarm_low is not None
+            ):
+                new_entities.append(AlarmLowSensor(
+                    entity_id=async_generate_entity_id(
+                        ENTITY_ID_FORMAT,
+                        f"{device.get_identifier()}_ch_{device_channel.number}_low_temperature",
+                        hass=hass,
+                    ),
+                    coordinator=coordinator,
+                    device_serial=device.get_identifier(),
+                    device_channel=device_channel,
+                ))
+
+
 
     if len(new_entities) > 0:
         _LOGGER.debug("New entities to create: %d", len(new_entities))
@@ -213,20 +235,10 @@ async def async_setup_entry(
 class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     """Implementation of a sensor."""
 
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.BATTERY
-
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
     _attr_state_class = SensorStateClass.MEASUREMENT
-
-    # Naming
-    # https://developers.home-assistant.io/docs/core/entity#entity-naming
-    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_has_entity_name = True
     _attr_translation_key = "battery"
-
-    # API data is in percent with no decimal place
-    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_suggested_display_precision = 0
 
@@ -243,10 +255,7 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(
-            self._device.get_identifier())
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
         if not device:
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
@@ -259,17 +268,8 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
         return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            },
+            identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")},
             name=self._device.label,
             sw_version=self._device.firmware,
             manufacturer="ThermoWorks",
@@ -279,28 +279,16 @@ class BatterySensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
 
     @property
     def icon(self) -> str | None:
-        """Return the icon to use in the frontend, if any."""
-
-        # Only handle the case where the device is charging as HA doesn't natively support
-        # a charging icon. None check is because not all battery devices support the battery
-        # state property
         if self._device.battery_state is not None and self._device.battery_state == "charging":
             return "mdi:battery-charging-100"
-
         return None
 
     @property
     def native_value(self) -> int | float:
-        """Return the state of the entity."""
-        # Using native value and native unit of measurement, allows you to change units
-        # in Lovelace and HA will automatically calculate the correct value.
         return float(self._device.battery)
 
     @property
     def unique_id(self) -> str:
-        """Return unique id."""
-        # All entities must have a unique id.  Think carefully what you want this to be as
-        # changing it later will cause HA to create new entities.
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}"
 
 
@@ -311,12 +299,7 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "last_seen"
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithLastSeen,
-    ) -> None:
+    def __init__(self, entity_id, coordinator, device) -> None:
         super().__init__(coordinator)
         self.entity_id = entity_id
         self._device = device
@@ -325,36 +308,24 @@ class LastSeenSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     def _handle_coordinator_update(self) -> None:
         device = self.coordinator.get_device_by_id(self._device.get_identifier())
         if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
+            raise UpdateFailed(f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
         if not DeviceWithLastSeen.is_protocol_compliant(device):
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithLastSeen)}"
-            )
+                f"attribute(s): {get_missing_attributes(device, DeviceWithLastSeen)}")
         self._device = device
         self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")})
 
     @property
     def native_value(self) -> str | None:
         if self._device.last_seen is None:
             return None
-
         if hasattr(self._device.last_seen, "isoformat"):
             return dt_util.as_utc(self._device.last_seen)
-
         last_seen = dt_util.parse_datetime(str(self._device.last_seen))
         return dt_util.as_utc(last_seen) if last_seen else None
 
@@ -371,12 +342,7 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
     _attr_has_entity_name = True
     _attr_translation_key = "transmit_interval"
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithTransmitInterval,
-    ) -> None:
+    def __init__(self, entity_id, coordinator, device) -> None:
         super().__init__(coordinator)
         self.entity_id = entity_id
         self._device = device
@@ -385,27 +351,17 @@ class TransmitIntervalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEn
     def _handle_coordinator_update(self) -> None:
         device = self.coordinator.get_device_by_id(self._device.get_identifier())
         if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found"
-            )
+            raise UpdateFailed(f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
         if not DeviceWithTransmitInterval.is_protocol_compliant(device):
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
-                f"attribute(s): {get_missing_attributes(device, DeviceWithTransmitInterval)}"
-            )
+                f"attribute(s): {get_missing_attributes(device, DeviceWithTransmitInterval)}")
         self._device = device
         self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")})
 
     @property
     def native_value(self) -> int | None:
@@ -420,13 +376,8 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
     """Base class for thermoworks channel sensors."""
 
     _device_channel: ThermoworksChannel
-
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_has_entity_name = True
-
-    # API data is given at higher precision, but that isn't needed
-    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_suggested_display_precision = 1
 
     def __init__(
@@ -436,8 +387,6 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
         device_serial: str,
         device_channel: ThermoworksChannel,
     ) -> None:
-        """Initialize the sensor."""
-
         super().__init__(coordinator)
         self.entity_id = entity_id
         self._device_channel = device_channel
@@ -445,79 +394,48 @@ class ChannelSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
         device_channel = self.coordinator.get_device_channel_by_id(
             device_id=self._device_serial, channel_id=self._device_channel.number
         )
         if not device_channel:
             raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device channel {self._device_channel.display_name()} "
-                "is not found")
+                f"Cannot update sensor {self.name}: device channel {self._device_channel.display_name()} is not found")
         self._device_channel = device_channel
         self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device_serial)}",
-                )
-            }
-        )
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device_serial)}")})
 
     @property
     def name(self) -> str:
-        """Return the name of the sensor."""
-        # This is the name that will be shown in the Entity UI.
-        # It is the name of the channel, not the device.
         return self._device_channel.display_name().capitalize()
 
     @property
     def translation_placeholders(self) -> Mapping[str, str]:
-        """Placeholder values for string internationalization."""
         return {"channel_name": self._device_channel.display_name()}
 
     @property
     def native_value(self) -> int | float:
-        """Return the state of the entity."""
-        # Using native value and native unit of measurement, allows you to change units
-        # in Lovelace and HA will automatically calculate the correct value.
         return float(self._device_channel.value)
-
 
     @property
     def unique_id(self) -> str:
-        """Return unique id."""
-        # All entities must have a unique id.  Think carefully what you want this to be as
-        # changing it later will cause HA to create new entities.
         return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}"
+
 
 class TemperatureSensor(ChannelSensor):
     """Implementation of a thermoworks temperature sensor."""
 
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.TEMPERATURE
-
-    # Naming
-    # https://developers.home-assistant.io/docs/core/entity#entity-naming
-    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_translation_key = "temperature"
 
     @property
     def native_unit_of_measurement(self) -> str:
-        """Return unit of temperature."""
         if self._device_channel.units == "F":
             return UnitOfTemperature.FAHRENHEIT
         if self._device_channel.units == "C":
             return UnitOfTemperature.CELSIUS
-
         raise ValueError(
             f"Unable to determine unit of measurement from unit string '{self._device_channel.units}'"
         )
@@ -526,41 +444,65 @@ class TemperatureSensor(ChannelSensor):
 class HumiditySensor(ChannelSensor):
     """Implementation of a thermoworks humidity sensor."""
 
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.HUMIDITY
-
-    # Naming
-    # https://developers.home-assistant.io/docs/core/entity#entity-naming
-    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_translation_key = "humidity"
-
-    # API data is in percent
-    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = PERCENTAGE
 
 
-class RateOfChangeSensor(ChannelSensor):
-    """Rate of change sensor for a thermoworks channel."""
+class AlarmHighSensor(ChannelSensor):
+    """Target (high alarm) temperature for a computed channel."""
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_has_entity_name = True
-    _attr_translation_key = "rate_of_change"
-    _attr_suggested_display_precision = 1
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_translation_key = "temperature"
+    _attr_suggested_display_precision = 0
+
+    @property
+    def name(self) -> str:
+        return f"{self._device_channel.display_name().capitalize()} high temperature"
+
+    @property
+    def native_value(self) -> int | float | None:
+        if self._device_channel.alarm_high is None:
+            return None
+        return float(self._device_channel.alarm_high)
 
     @property
     def native_unit_of_measurement(self) -> str:
-        unit = self._device_channel.units if self._device_channel.units else "F"
-        if unit == "F":
-            return f"{UnitOfTemperature.FAHRENHEIT}/h"
-        return f"{UnitOfTemperature.CELSIUS}/h"
-
-    @property
-    def native_value(self) -> float | None:
-        return self._device_channel.rate_of_change
+        if self._device_channel.alarm_high_units == "F":
+            return UnitOfTemperature.FAHRENHEIT
+        return UnitOfTemperature.CELSIUS
 
     @property
     def unique_id(self) -> str:
-        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-roc"
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-alarm-high"
+
+
+class AlarmLowSensor(ChannelSensor):
+    """Low alarm temperature for a computed channel."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_translation_key = "temperature"
+    _attr_suggested_display_precision = 0
+
+    @property
+    def name(self) -> str:
+        return f"{self._device_channel.display_name().capitalize()} low temperature"
+
+    @property
+    def native_value(self) -> int | float | None:
+        if self._device_channel.alarm_low is None:
+            return None
+        return float(self._device_channel.alarm_low)
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        if self._device_channel.alarm_low_units == "F":
+            return UnitOfTemperature.FAHRENHEIT
+        return UnitOfTemperature.CELSIUS
+
+    @property
+    def unique_id(self) -> str:
+        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-alarm-low"
 
 
 class FanSetTempSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
@@ -713,45 +655,25 @@ class SessionStartSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity
 
 
 class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
-    """Implementation of a sensor."""
+    """Implementation of a signal strength sensor."""
 
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-device-classes
     _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
-
-    # https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
     _attr_state_class = SensorStateClass.MEASUREMENT
-
-    # Naming
-    # https://developers.home-assistant.io/docs/core/entity#entity-naming
-    # https://developers.home-assistant.io/docs/internationalization/core/#name-of-entities
     _attr_has_entity_name = True
     _attr_translation_key = "signal"
-
-    # API data is in negative decibels with no decimal place
-    # https://developers.home-assistant.io/docs/core/entity/sensor#properties
     _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS
     _attr_suggested_display_precision = 0
 
-    def __init__(
-        self,
-        entity_id: str,
-        coordinator: ThermoworksCoordinator,
-        device: DeviceWithWifi,
-    ) -> None:
-        """Initialise sensor."""
+    def __init__(self, entity_id, coordinator, device) -> None:
         super().__init__(coordinator)
         self.entity_id = entity_id
         self._device = device
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Update sensor with latest data from coordinator."""
-        # This method is called by your DataUpdateCoordinator when a successful update runs.
-        device = self.coordinator.get_device_by_id(
-            self._device.get_identifier())
+        device = self.coordinator.get_device_by_id(self._device.get_identifier())
         if not device:
-            raise UpdateFailed(
-                f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
+            raise UpdateFailed(f"Cannot update sensor {self.name}: device {self._device.display_name()} is not found")
         if not DeviceWithWifi.is_protocol_compliant(device):
             raise UpdateFailed(
                 f"Cannot update sensor {self.name}: device {self._device.display_name()} is missing required "
@@ -761,60 +683,12 @@ class SignalSensor(CoordinatorEntity[ThermoworksCoordinator], SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        # Identifiers are what group entities into the same device.
-        # If your device is created elsewhere, you can just specify the indentifiers parameter.
-        # If your device connects via another device, add via_device parameter with the indentifiers of that device.
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{format_mac(self._device.get_identifier())}",
-                )
-            }
-        )
+        return DeviceInfo(identifiers={(DOMAIN, f"{format_mac(self._device.get_identifier())}")})
 
     @property
     def native_value(self) -> int | float:
-        """Return the state of the entity."""
-        # Using native value and native unit of measurement, allows you to change units
-        # in Lovelace and HA will automatically calculate the correct value.
         return float(self._device.wifi_strength)
 
     @property
     def unique_id(self) -> str:
-        """Return unique id."""
-        # All entities must have a unique id.  Think carefully what you want this to be as
-        # changing it later will cause HA to create new entities.
         return f"{DOMAIN}-{format_mac(self._device.get_identifier())}-signal"
-
-class AlarmHighSensor(ChannelSensor):
-    """Sensor that reports the alarm high (target temp) for a channel."""
-
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
-    _attr_translation_key = "temperature"
-    _attr_suggested_display_precision = 0
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return f"{self._device_channel.display_name().capitalize()} target temperature"
-
-    @property
-    def native_value(self) -> int | float | None:
-        """Return the alarm high value."""
-        if self._device_channel.alarm_high is None:
-            return None
-        return float(self._device_channel.alarm_high)
-
-    @property
-    def unique_id(self) -> str:
-        """Return unique id."""
-        return f"{DOMAIN}-{format_mac(self._device_serial)}-{self._device_channel.number}-alarm-high"
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        """Return unit of temperature."""
-        if self._device_channel.alarm_high_units == "F":
-            return UnitOfTemperature.FAHRENHEIT
-        return UnitOfTemperature.CELSIUS

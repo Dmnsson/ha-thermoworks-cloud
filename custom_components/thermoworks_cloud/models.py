@@ -160,6 +160,7 @@ class ThermoworksChannel:
     units: str
     status: Optional[str]
     label: Optional[str]
+    channel_type: Optional[str] = None
     color: Optional[str] = None
     rate_of_change: Optional[float] = None
     rate_of_change_unit: Optional[str] = None
@@ -171,6 +172,10 @@ class ThermoworksChannel:
     recent_readings: Optional[list] = None
     alarm_high: Optional[float] = None
     alarm_high_units: Optional[str] = None
+    alarm_high_enabled: Optional[bool] = None
+    alarm_low: Optional[float] = None
+    alarm_low_units: Optional[str] = None
+    alarm_low_enabled: Optional[bool] = None
 
     @classmethod
     def is_thermoworks_channel(cls, obj: Any) -> TypeGuard["ThermoworksChannel"]:
@@ -191,6 +196,7 @@ class ThermoworksChannel:
             units=channel.units,
             status=channel.status,
             label=channel.label,
+            channel_type=getattr(channel, 'type', None),
             color=getattr(channel, 'color', None),
             rate_of_change=getattr(channel, 'rate_of_change', None),
             rate_of_change_unit=getattr(channel, 'rate_of_change_unit', None),
@@ -202,6 +208,10 @@ class ThermoworksChannel:
             recent_readings=getattr(channel, 'recent_readings', None),
             alarm_high=channel.alarm_high.value if channel.alarm_high is not None else None,
             alarm_high_units=channel.alarm_high.units if channel.alarm_high is not None else None,
+            alarm_high_enabled=channel.alarm_high.enabled if channel.alarm_high is not None else None,
+            alarm_low=channel.alarm_low.value if channel.alarm_low is not None else None,
+            alarm_low_units=channel.alarm_low.units if channel.alarm_low is not None else None,
+            alarm_low_enabled=channel.alarm_low.enabled if channel.alarm_low is not None else None,
         )
 
     def display_name(self) -> str:

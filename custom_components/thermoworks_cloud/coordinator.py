@@ -111,21 +111,19 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                     continue
 
                 device_channels = []
-                # According to the observed behavior, channels seem to be 1 indexed
+                found_any_channel = False
+                # Fetch channels starting from 0 (channel 0 = computed/average for RFX meat probe)
                 for channel in range(0, 10):
-                    if channel == 0:
-                        _LOGGER.debug("No channel 0 for device %s, trying from 1",
-                                      device.display_name())
-                        continue
                     try:
                         api_channel = await self.api.get_device_channel(
-                            device_serial=device.serial,
+                            device_serial=device.get_identifier(),
                             channel=str(channel)
                         )
                         try:
                             channel_data = ThermoworksChannel.from_api_channel(
                                 api_channel)
                             device_channels.append(channel_data)
+                            found_any_channel = True
                             _LOGGER.debug(
                                 "Retrieved channel %s for device %s",
                                 channel_data.display_name(), device.display_name())
@@ -134,10 +132,14 @@ class ThermoworksCoordinator(DataUpdateCoordinator[ThermoworksData]):
                                           channel, device.display_name(), err)
                             # Skip this channel as it's missing critical data
                     except ResourceNotFoundError:
-                        _LOGGER.debug("No more channels found for device %s after channel %s",
-                                      device.display_name(), channel-1)
-                        # Go until there are no more
-                        break
+                        if found_any_channel:
+                            _LOGGER.debug("No more channels found for device %s after channel %s",
+                                          device.display_name(), channel - 1)
+                            break
+                        else:
+                            _LOGGER.debug("Channel %s not found for device %s, trying next",
+                                          channel, device.display_name())
+                            continue
                     except Exception as channel_err:
                         _LOGGER.error("Error fetching channel %s for device %s: %s",
                                       channel, device.display_name(), channel_err)
